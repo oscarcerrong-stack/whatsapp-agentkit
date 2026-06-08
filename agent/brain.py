@@ -39,31 +39,35 @@ def obtener_mensaje_fallback() -> str:
     return config.get("fallback_message", "Disculpa, no entendi tu mensaje. ¿Podrias reformularlo?")
 
 
-async def extraer_producto_principal(mensaje_usuario: str, respuesta: str) -> str | None:
+def extraer_producto_principal(mensaje_usuario: str, respuesta: str) -> str | None:
     """
-    Extrae el nombre del producto principal mencionado en el intercambio.
-    Retorna None si no se menciona un producto especifico.
+    Extrae el nombre del producto principal del mensaje del usuario.
+    Usa el mensaje directo para buscar la imagen en disurpro.cl.
     """
-    try:
-        prompt = f"""Del siguiente intercambio, extrae SOLO el nombre del producto principal mencionado.
-Responde UNICAMENTE con el nombre del producto (ej: "Alicate Universal 6" o "Taladro Percutor").
-Si hay varios productos, elige el mas relevante.
-Si no hay un producto especifico, responde exactamente: NINGUNO
+    import re
 
-Usuario pregunto: {mensaje_usuario}
-Respuesta del agente: {respuesta[:500]}"""
+    # Palabras a ignorar para limpiar el mensaje
+    stopwords = {
+        "tienen", "tiene", "hay", "cuanto", "cuesta", "precio", "de", "del",
+        "la", "el", "los", "las", "un", "una", "unos", "unas", "y", "o",
+        "que", "como", "donde", "cuando", "para", "con", "sin", "por",
+        "quiero", "necesito", "busco", "me", "puedes", "podes", "tienes",
+        "comprar", "ver", "mostrar", "informacion", "info", "hola", "buenas",
+        "buen", "bueno", "favor", "please", "gracias"
+    }
 
-        response = await client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=50,
-            messages=[{"role": "user", "content": prompt}]
-        )
-        resultado = response.content[0].text.strip()
-        if resultado.upper() == "NINGUNO" or not resultado:
-            return None
-        return resultado
-    except Exception:
+    # Limpiar signos de puntuacion y bajar a minusculas
+    texto = re.sub(r'[¿?¡!,.:;]', ' ', mensaje_usuario.lower())
+    palabras = texto.split()
+
+    # Filtrar stopwords y palabras muy cortas
+    palabras_utiles = [p for p in palabras if p not in stopwords and len(p) > 2]
+
+    if not palabras_utiles:
         return None
+
+    # Retornar las primeras 3 palabras utiles como nombre del producto
+    return " ".join(palabras_utiles[:3])
 
 
 async def generar_respuesta(mensaje: str, historial: list[dict]) -> str:

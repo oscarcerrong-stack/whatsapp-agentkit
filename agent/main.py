@@ -81,17 +81,17 @@ async def webhook_handler(request: Request):
             await guardar_mensaje(msg.telefono, "user", msg.texto)
             await guardar_mensaje(msg.telefono, "assistant", respuesta)
 
-            # Enviar respuesta de texto
-            await proveedor.enviar_mensaje(msg.telefono, respuesta)
-
-            # Intentar enviar imagen del producto si el proveedor lo soporta
+            # Intentar enviar imagen del producto ANTES del texto
             if hasattr(proveedor, "enviar_imagen"):
-                producto = await extraer_producto_principal(msg.texto, respuesta)
+                producto = extraer_producto_principal(msg.texto, respuesta)
                 if producto:
                     imagen_url = await obtener_imagen_producto(producto)
                     if imagen_url:
                         await proveedor.enviar_imagen(msg.telefono, imagen_url)
                         logger.info(f"Imagen enviada para '{producto}': {imagen_url}")
+
+            # Enviar respuesta de texto
+            await proveedor.enviar_mensaje(msg.telefono, respuesta)
 
             logger.info(f"Respuesta a {msg.telefono}: {respuesta}")
 
