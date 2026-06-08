@@ -5,7 +5,6 @@ import os
 import logging
 import httpx
 from fastapi import Request
-from fastapi.responses import PlainTextResponse
 from agent.providers.base import ProveedorWhatsApp, MensajeEntrante
 
 logger = logging.getLogger("agentkit")
@@ -27,7 +26,7 @@ class ProveedorMeta(ProveedorWhatsApp):
         token = params.get("hub.verify_token")
         challenge = params.get("hub.challenge")
         if mode == "subscribe" and token == self.verify_token:
-            return PlainTextResponse(content=challenge)
+            return challenge
         return None
 
     async def parsear_webhook(self, request: Request) -> list[MensajeEntrante]:
