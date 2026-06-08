@@ -57,6 +57,7 @@ class ProveedorZapi(ProveedorWhatsApp):
     async def enviar_imagen(self, telefono: str, url_imagen: str, caption: str = "") -> bool:
         """Envia imagen via Z-API con texto opcional."""
         if not self.instance_id or not self.token:
+            logger.error("ZAPI_INSTANCE_ID o ZAPI_TOKEN no configurados")
             return False
 
         url = f"{self.base_url}/send-image"
@@ -70,10 +71,11 @@ class ProveedorZapi(ProveedorWhatsApp):
             "caption": caption,
         }
 
+        logger.info(f"Z-API send-image → telefono={telefono} url={url_imagen[:60]}")
+
         async with httpx.AsyncClient() as client:
             r = await client.post(url, json=payload, headers=headers, timeout=15)
-            if r.status_code not in (200, 201):
-                logger.error(f"Error Z-API imagen: {r.status_code} — {r.text}")
+            logger.info(f"Z-API send-image respuesta: {r.status_code} — {r.text[:200]}")
             return r.status_code in (200, 201)
 
     async def enviar_mensaje(self, telefono: str, mensaje: str) -> bool:
