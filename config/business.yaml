@@ -1,0 +1,21 @@
+# Configuracion del negocio — Generado por AgentKit
+negocio:
+  nombre: "DISUR"
+  descripcion: "Venta de Herramientas y Suministros para empresas y personas naturales. Amplio catalogo de productos que incluye herramientas manuales, electricas, adhesivos, quimicos, fijaciones, materiales de construccion y suministros industriales."
+  horario: "Lunes a Viernes 9:30 a 18:00, Sabados 9:30 a 14:00"
+  direccion: "Tercera Transversal 5408, San Miguel, Region Metropolitana"
+  web: "www.disurpro.cl"
+
+agente:
+  nombre: "Asistente Disur"
+  tono: "vendedor y persuasivo"
+  casos_de_uso:
+    - "Responder preguntas frecuentes sobre productos"
+    - "Consultar precios de herramientas y suministros"
+    - "Orientar al cliente sobre que producto necesita"
+    - "Informar disponibilidad y caracteristicas de productos"
+
+metadata:
+  creado: "2026-06-08"
+  version: "1.0"
+  proveedor_whatsapp: "twilio"
