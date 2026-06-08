@@ -4,7 +4,7 @@
 import os
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, BackgroundTasks
 from fastapi.responses import PlainTextResponse
 from dotenv import load_dotenv
 
@@ -22,6 +22,48 @@ logger = logging.getLogger("agentkit")
 
 proveedor = obtener_proveedor()
 PORT = int(os.getenv("PORT", 8000))
+
+# Cache de mensajes ya procesados para evitar duplicados
+_mensajes_procesados: set[str] = set()
+_MAX_CACHE = 500
+
+
+def _ya_procesado(mensaje_id: str) -> bool:
+    """Retorna True si el mensaje ya fue procesado (evita duplicados)."""
+    if mensaje_id in _mensajes_procesados:
+        return True
+    _mensajes_procesados.add(mensaje_id)
+    if len(_mensajes_procesados) > _MAX_CACHE:
+        # Limpiar la mitad mas antigua cuando el cache crece mucho
+        items = list(_mensajes_procesados)
+        _mensajes_procesados.clear()
+        _mensajes_procesados.update(items[_MAX_CACHE // 2:])
+    return False
+
+
+async def procesar_mensaje(telefono: str, texto: str, mensaje_id: str):
+    """Procesa un mensaje en background: llama a Claude y responde por WhatsApp."""
+    try:
+        historial = await obtener_historial(telefono)
+        respuesta = await generar_respuesta(texto, historial)
+
+        await guardar_mensaje(telefono, "user", texto)
+        await guardar_mensaje(telefono, "assistant", respuesta)
+
+        # Enviar imagen del producto primero si aplica
+        if hasattr(proveedor, "enviar_imagen"):
+            producto = extraer_producto_principal(texto, respuesta)
+            if producto:
+                imagen_url = await obtener_imagen_producto(producto)
+                if imagen_url:
+                    await proveedor.enviar_imagen(telefono, imagen_url)
+                    logger.info(f"Imagen enviada para '{producto}': {imagen_url}")
+
+        await proveedor.enviar_mensaje(telefono, respuesta)
+        logger.info(f"Respuesta a {telefono}: {respuesta[:100]}")
+
+    except Exception as e:
+        logger.error(f"Error procesando mensaje {mensaje_id}: {e}")
 
 
 @asynccontextmanager
@@ -43,13 +85,11 @@ app = FastAPI(
 
 @app.get("/")
 async def health_check():
-    """Endpoint de salud para Railway/monitoreo."""
     return {"status": "ok", "service": "agentkit-disur", "agente": "Asistente Disur"}
 
 
 @app.get("/webhook")
 async def webhook_verificacion(request: Request):
-    """Verificacion GET del webhook (requerido por Meta Cloud API, no-op para Twilio)."""
     resultado = await proveedor.validar_webhook(request)
     if resultado is not None:
         return PlainTextResponse(str(resultado))
@@ -57,10 +97,10 @@ async def webhook_verificacion(request: Request):
 
 
 @app.post("/webhook")
-async def webhook_handler(request: Request):
+async def webhook_handler(request: Request, background_tasks: BackgroundTasks):
     """
-    Recibe mensajes de WhatsApp via Twilio.
-    Procesa el mensaje, genera respuesta con Claude y la envia de vuelta.
+    Recibe mensajes de WhatsApp y responde 200 de inmediato.
+    El procesamiento ocurre en background para evitar timeouts y mensajes duplicados.
     """
     try:
         mensajes = await proveedor.parsear_webhook(request)
@@ -69,34 +109,19 @@ async def webhook_handler(request: Request):
             if msg.es_propio or not msg.texto:
                 continue
 
+            # Ignorar si ya procesamos este mensaje (Z-API puede reintentar)
+            if _ya_procesado(msg.mensaje_id):
+                logger.info(f"Mensaje duplicado ignorado: {msg.mensaje_id}")
+                continue
+
             logger.info(f"Mensaje de {msg.telefono}: {msg.texto}")
+            background_tasks.add_task(
+                procesar_mensaje, msg.telefono, msg.texto, msg.mensaje_id
+            )
 
-            # Obtener historial ANTES de guardar el mensaje actual
-            historial = await obtener_historial(msg.telefono)
-
-            # Generar respuesta con Claude
-            respuesta = await generar_respuesta(msg.texto, historial)
-
-            # Guardar mensaje del usuario Y respuesta del agente
-            await guardar_mensaje(msg.telefono, "user", msg.texto)
-            await guardar_mensaje(msg.telefono, "assistant", respuesta)
-
-            # Intentar enviar imagen del producto ANTES del texto
-            if hasattr(proveedor, "enviar_imagen"):
-                producto = extraer_producto_principal(msg.texto, respuesta)
-                if producto:
-                    imagen_url = await obtener_imagen_producto(producto)
-                    if imagen_url:
-                        await proveedor.enviar_imagen(msg.telefono, imagen_url)
-                        logger.info(f"Imagen enviada para '{producto}': {imagen_url}")
-
-            # Enviar respuesta de texto
-            await proveedor.enviar_mensaje(msg.telefono, respuesta)
-
-            logger.info(f"Respuesta a {msg.telefono}: {respuesta}")
-
+        # Responder 200 inmediatamente para que Z-API no reintente
         return {"status": "ok"}
 
     except Exception as e:
         logger.error(f"Error en webhook: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"status": "error", "detail": str(e)}
