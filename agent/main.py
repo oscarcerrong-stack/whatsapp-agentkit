@@ -8,9 +8,10 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import PlainTextResponse
 from dotenv import load_dotenv
 
-from agent.brain import generar_respuesta
+from agent.brain import generar_respuesta, extraer_producto_principal
 from agent.memory import inicializar_db, guardar_mensaje, obtener_historial
 from agent.providers import obtener_proveedor
+from agent.image_search import obtener_imagen_producto
 
 load_dotenv()
 
@@ -80,8 +81,17 @@ async def webhook_handler(request: Request):
             await guardar_mensaje(msg.telefono, "user", msg.texto)
             await guardar_mensaje(msg.telefono, "assistant", respuesta)
 
-            # Enviar respuesta por WhatsApp via Twilio
+            # Enviar respuesta de texto
             await proveedor.enviar_mensaje(msg.telefono, respuesta)
+
+            # Intentar enviar imagen del producto si el proveedor lo soporta
+            if hasattr(proveedor, "enviar_imagen"):
+                producto = await extraer_producto_principal(msg.texto, respuesta)
+                if producto:
+                    imagen_url = await obtener_imagen_producto(producto)
+                    if imagen_url:
+                        await proveedor.enviar_imagen(msg.telefono, imagen_url)
+                        logger.info(f"Imagen enviada para '{producto}': {imagen_url}")
 
             logger.info(f"Respuesta a {msg.telefono}: {respuesta}")
 

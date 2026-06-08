@@ -39,6 +39,33 @@ def obtener_mensaje_fallback() -> str:
     return config.get("fallback_message", "Disculpa, no entendi tu mensaje. ¿Podrias reformularlo?")
 
 
+async def extraer_producto_principal(mensaje_usuario: str, respuesta: str) -> str | None:
+    """
+    Extrae el nombre del producto principal mencionado en el intercambio.
+    Retorna None si no se menciona un producto especifico.
+    """
+    try:
+        prompt = f"""Del siguiente intercambio, extrae SOLO el nombre del producto principal mencionado.
+Responde UNICAMENTE con el nombre del producto (ej: "Alicate Universal 6" o "Taladro Percutor").
+Si hay varios productos, elige el mas relevante.
+Si no hay un producto especifico, responde exactamente: NINGUNO
+
+Usuario pregunto: {mensaje_usuario}
+Respuesta del agente: {respuesta[:500]}"""
+
+        response = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=50,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        resultado = response.content[0].text.strip()
+        if resultado.upper() == "NINGUNO" or not resultado:
+            return None
+        return resultado
+    except Exception:
+        return None
+
+
 async def generar_respuesta(mensaje: str, historial: list[dict]) -> str:
     """
     Genera una respuesta usando Claude API.
