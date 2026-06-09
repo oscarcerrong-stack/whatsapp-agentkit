@@ -33,11 +33,17 @@ def _cargar_catalogo() -> list[str]:
         return []
 
 
+def _fix_mojibake(texto: str) -> str:
+    """Corrige doble encoding UTF-8 (ej: 'PeA+-a' bytes C3 83 C2 B1 -> 'Pena')."""
+    try:
+        return texto.encode('latin-1').decode('utf-8')
+    except (UnicodeDecodeError, UnicodeEncodeError):
+        return texto
+
+
 def slugificar(texto: str) -> str:
-    """Convierte texto a slug URL."""
-    # Limpiar artefactos de encoding (ej: Â¨ → nada, Ã → nada)
-    texto = re.sub(r'[Â-Ã][^\w\s]?', '', texto)
-    texto = re.sub(r'[-ÿ]', '', texto)
+    """Convierte texto a slug URL, manejando mojibake del catalogo."""
+    texto = _fix_mojibake(texto)
     texto = unicodedata.normalize("NFKD", texto)
     texto = "".join(c for c in texto if not unicodedata.combining(c))
     texto = texto.lower()
@@ -48,6 +54,7 @@ def slugificar(texto: str) -> str:
 
 def normalizar(texto: str) -> str:
     """Normaliza texto para comparacion: sin tildes, minusculas."""
+    texto = _fix_mojibake(texto)
     texto = unicodedata.normalize("NFKD", texto)
     texto = "".join(c for c in texto if not unicodedata.combining(c))
     return texto.lower().strip()
@@ -100,17 +107,17 @@ async def _fetch_imagen_desde_pagina(url: str) -> str | None:
                 return None
             html = r.text
 
-            # og:image
+            # og:image (probar ambos ordenes de atributos)
             match = re.search(r'property=["\']og:image["\'][^>]*content=["\']([^"\']+)["\']', html)
             if not match:
                 match = re.search(r'content=["\']([^"\']+)["\'][^>]*property=["\']og:image["\']', html)
             if match:
-                return match.group(1).split('?')[0]
+                return match.group(1)
 
             # Fallback: primera imagen de producto en CDN
             match = re.search(rf'{re.escape(CDN)}/\d+/product/[^"\'>\s]+', html)
             if match:
-                return match.group(0).split('?')[0]
+                return match.group(0)
     except Exception as e:
         logger.debug(f"Error fetching {url}: {e}")
     return None
@@ -122,22 +129,24 @@ async def obtener_imagen_producto(consulta: str) -> str | None:
     1. Busca el nombre exacto en el catalogo local
     2. Genera el slug y consulta disurpro.cl
     """
-    # Buscar nombre exacto en catalogo
     producto_exacto = buscar_mejor_producto(consulta)
-    logger.info(f"Consulta: '{consulta}' → Producto en catalogo: '{producto_exacto}'")
+    logger.info(f"Consulta: '{consulta}' -> Producto en catalogo: '{producto_exacto}'")
 
     candidatos = []
     if producto_exacto:
         candidatos.append(slugificar(producto_exacto))
 
     # Tambien intentar con la consulta original
-    candidatos.append(slugificar(consulta))
+    slug_directo = slugificar(consulta)
+    if slug_directo not in candidatos:
+        candidatos.append(slug_directo)
 
     # Probar cada slug
     for slug in candidatos:
         if not slug:
             continue
         url = f"{TIENDA_URL}/product/{slug}"
+        logger.info(f"Buscando imagen en: {url}")
         imagen = await _fetch_imagen_desde_pagina(url)
         if imagen:
             logger.info(f"Imagen encontrada: {imagen}")
